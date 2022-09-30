@@ -4,6 +4,7 @@ const app = express();
 const cors = require('cors');
 require('dotenv').config();
 const port = process.env.PORT || 5000;
+var jwt = require('jsonwebtoken');
 
 app.use(cors());
 app.use(express.json());
@@ -18,6 +19,24 @@ async function run() {
     await client.connect();
     const serviceCollection = client.db('medicpro').collection('services');
     const appointmentsCollection = client.db('medicpro').collection('appointments');
+    const usersCollection = client.db('medicpro').collection('users');
+
+    
+
+
+    // creating new user / updating existing one
+    app.put('/users/:email',async (req, res)=>{
+      const email = req.params.email;
+      const user = req.body;
+      const filter = { email: email };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: user,
+      };
+      const result = await usersCollection.updateOne(filter, updateDoc, options);
+      const token = jwt.sign({ email:email}, process.env.ACCESS_TOKEN_SECRET,{ expiresIn: '1h' });
+      res.send({result, token});
+    })
 
 
     // loading to show all services into ui 
@@ -30,10 +49,46 @@ async function run() {
 
     // creating new appointment 
     app.post('/appointments',async(req, res)=>{
-      const newAppointment= req.body;
-      const result = await appointmentsCollection.insertOne(newAppointment);
-      res.send(result);
+      const booking= req.body;
+      console.log(booking);
+      const query = {treatment:booking.treatment, date:booking.date,email:booking.email};
+      const alreadyAppointed = await appointmentsCollection.findOne(query);
+      if(alreadyAppointed){
+       return res.send({success:false,booking:alreadyAppointed});
+      } 
+      const result = await appointmentsCollection.insertOne(booking);
+      return res.send({success:true,booking:booking, result});
     })
+
+    app.get('/appointments',async(req,res)=>{
+      const patient = req.query.patient;
+      const query = {email:patient}
+      const appointments = await appointmentsCollection.find(query).toArray();
+      console.log(appointments);
+      res.send(appointments);
+    })
+
+    // available slots for specific date
+    app.get('/available', async(req,res)=>{
+
+      const date = req.query.date;
+
+      // getting all services
+      const services = await serviceCollection.find().toArray();
+
+      // getting booking of a specific date
+      const query = {date:date}
+      const appointments = await appointmentsCollection.find(query).toArray();
+
+      // for each service, find booking for that service
+      services.forEach(service=>{
+        const serviceAppointments = appointments.filter(book=> book.treatment === service.name);
+        const bookedSlots = serviceAppointments.map(book=> book.slot);
+        const available = service.slots.filter(slot=> !bookedSlots.includes(slot));
+        service.slots= available;
+      })
+      res.send(services);
+    }) 
 
   } finally {
     // await client.close();
