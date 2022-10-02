@@ -78,7 +78,6 @@ async function run() {
     app.get('/appointments',verifyJWT, async (req, res) => {
       const patient = req.query.patient;
       const decodedEmail = req.decoded.email;
-      console.log(decodedEmail);
       if(patient === decodedEmail){
         const query = { email: patient }
         const appointments = await appointmentsCollection.find(query).toArray();
