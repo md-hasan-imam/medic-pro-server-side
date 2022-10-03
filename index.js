@@ -52,6 +52,24 @@ async function run() {
       const token = jwt.sign({ email: email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
       res.send({ result, token });
     })
+    
+    // loading all users in dashboard
+    app.get('/users', async(req,res)=>{;
+      const users = await usersCollection.find().toArray();
+      res.send(users);
+    });
+
+    // making an admin 
+    app.put('/user/admin/:email',verifyJWT,async(req,res)=>{
+      const email = req.params.email;
+      const filter = { email: email };
+      console.log(email);
+      const updateDoc = {
+        $set: {role : 'admin'},
+      };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    })
 
 
     // loading to show all services into ui 
