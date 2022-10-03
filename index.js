@@ -37,8 +37,6 @@ async function run() {
     const usersCollection = client.db('medicpro').collection('users');
 
 
-
-
     // creating new user / updating existing one
     app.put('/users/:email', async (req, res) => {
       const email = req.params.email;
@@ -62,14 +60,37 @@ async function run() {
     // making an admin 
     app.put('/user/admin/:email',verifyJWT,async(req,res)=>{
       const email = req.params.email;
-      const filter = { email: email };
-      console.log(email);
-      const updateDoc = {
-        $set: {role : 'admin'},
-      };
-      const result = await usersCollection.updateOne(filter, updateDoc);
+      const requester = req.decoded.email;
+      const requesterAccount = await usersCollection.findOne({email:requester});
+      if(requesterAccount.role === 'admin'){
+        const filter = { email: email };
+        const updateDoc = {
+          $set: {role : 'admin'},
+        };
+        const result = await usersCollection.updateOne(filter, updateDoc);
+        res.send(result);
+        console.log(result);
+      }
+      else{
+        res.status(403).send({message:'Forbidden'})
+      }
+    })
+    // checking user whether he is admin or not
+    app.get('/admin/:email', async(req,res)=>{
+      const email = req.params.email;
+      const user = await usersCollection.findOne({email:email});
+      const isAdmin = user.role === 'admin';
+      res.send({admin:isAdmin});
+    })
+
+    // deleting user account
+    app.delete('/user/:email', async(req, res)=>{
+      const email = req.params.email;
+      const query = ({email:email});
+      const result = await usersCollection.deleteOne(query);
       res.send(result);
     })
+
 
 
     // loading to show all services into ui 
