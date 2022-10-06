@@ -15,13 +15,13 @@ const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology:
 
 function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
-  if(!authHeader){
-    return res.status(401).send({message:'unauthorized access'});
+  if (!authHeader) {
+    return res.status(401).send({ message: 'unauthorized access' });
   }
   const token = authHeader.split(' ')[1];
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET , function(err, decoded) {
-    if(err){
-      return res.status(403).send({message: 'Forbidden Access'})
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+    if (err) {
+      return res.status(403).send({ message: 'Forbidden Access' })
     }
     req.decoded = decoded;
     next();
@@ -35,7 +35,20 @@ async function run() {
     const serviceCollection = client.db('medicpro').collection('services');
     const appointmentsCollection = client.db('medicpro').collection('appointments');
     const usersCollection = client.db('medicpro').collection('users');
+    const doctorsCollection = client.db('medicpro').collection('doctors');
 
+    // verifying admin here
+    const verifyAdmin = async (req, res, next) => {
+      const requester = req.decoded.email;
+      const requesterAccount = await usersCollection.findOne({ email: requester });
+      console.log('requester to make new doctor rquest gotfrom ',requester, requesterAccount)
+      if (requesterAccount.role === 'admin') {
+        next();
+      }
+      else {
+        res.status(403).send({ message: 'forbidden' });
+      }
+    }
 
     // creating new user / updating existing one
     app.put('/users/:email', async (req, res) => {
@@ -50,44 +63,59 @@ async function run() {
       const token = jwt.sign({ email: email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
       res.send({ result, token });
     })
-    
+
     // loading all users in dashboard
-    app.get('/users', async(req,res)=>{;
+    app.get('/users', async (req, res) => {
+      ;
       const users = await usersCollection.find().toArray();
       res.send(users);
     });
 
     // making an admin 
-    app.put('/user/admin/:email',verifyJWT,async(req,res)=>{
+    app.put('/user/admin/:email', verifyJWT,verifyAdmin, async (req, res) => {
       const email = req.params.email;
-      const requester = req.decoded.email;
-      const requesterAccount = await usersCollection.findOne({email:requester});
-      if(requesterAccount.role === 'admin'){
-        const filter = { email: email };
-        const updateDoc = {
-          $set: {role : 'admin'},
-        };
-        const result = await usersCollection.updateOne(filter, updateDoc);
-        res.send(result);
-        console.log(result);
-      }
-      else{
-        res.status(403).send({message:'Forbidden'})
-      }
+      const filter = { email: email };
+      const updateDoc = {
+        $set: { role: 'admin' },
+      };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send(result);
     })
+
     // checking user whether he is admin or not
-    app.get('/admin/:email', async(req,res)=>{
+    app.get('/admin/:email', async (req, res) => {
       const email = req.params.email;
-      const user = await usersCollection.findOne({email:email});
+      const user = await usersCollection.findOne({ email: email });
       const isAdmin = user.role === 'admin';
-      res.send({admin:isAdmin});
+      res.send({ admin: isAdmin });
     })
 
     // deleting user account
-    app.delete('/user/:email', async(req, res)=>{
+    app.delete('/user/:email', async (req, res) => {
       const email = req.params.email;
-      const query = ({email:email});
+      const query = ({ email: email });
       const result = await usersCollection.deleteOne(query);
+      res.send(result);
+    })
+
+    // creating/ adding a new doctor 
+    app.post('/doctor',verifyJWT,verifyAdmin, async (req, res) => {
+      const doctor = req.body;
+      const result = await doctorsCollection.insertOne(doctor);
+      res.send(result);
+    })
+    // loading all doctors
+    app.get('/doctor',async(req, res)=>{
+      const doctors =await doctorsCollection.find().toArray();
+      res.send(doctors);
+    })
+
+    // deleting a doctor 
+
+    app.delete('/doctor/:email', async (req, res)=>{
+      const email = req.params.email;
+      const query = {email: email};
+      const result = await doctorsCollection.deleteOne(query);
       res.send(result);
     })
 
@@ -114,15 +142,15 @@ async function run() {
     })
 
     // loading appointments of a single logged in user
-    app.get('/appointments',verifyJWT, async (req, res) => {
+    app.get('/appointments', verifyJWT, async (req, res) => {
       const patient = req.query.patient;
       const decodedEmail = req.decoded.email;
-      if(patient === decodedEmail){
+      if (patient === decodedEmail) {
         const query = { email: patient }
         const appointments = await appointmentsCollection.find(query).toArray();
         res.send(appointments);
-      }else{
-        return res.status(403).send({message: 'Forbidden Access'});
+      } else {
+        return res.status(403).send({ message: 'Forbidden Access' });
       }
     })
 
