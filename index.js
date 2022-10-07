@@ -1,10 +1,12 @@
 const express = require('express');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const app = express();
 const cors = require('cors');
 require('dotenv').config();
 const port = process.env.PORT || 5000;
 var jwt = require('jsonwebtoken');
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 
 app.use(cors());
 app.use(express.json());
@@ -36,12 +38,12 @@ async function run() {
     const appointmentsCollection = client.db('medicpro').collection('appointments');
     const usersCollection = client.db('medicpro').collection('users');
     const doctorsCollection = client.db('medicpro').collection('doctors');
+    const paymentsCollection = client.db('medicpro').collection('payments');
 
     // verifying admin here
     const verifyAdmin = async (req, res, next) => {
       const requester = req.decoded.email;
       const requesterAccount = await usersCollection.findOne({ email: requester });
-      console.log('requester to make new doctor rquest gotfrom ',requester, requesterAccount)
       if (requesterAccount.role === 'admin') {
         next();
       }
@@ -60,7 +62,7 @@ async function run() {
         $set: user,
       };
       const result = await usersCollection.updateOne(filter, updateDoc, options);
-      const token = jwt.sign({ email: email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+      const token = jwt.sign({ email: email }, process.env.ACCESS_TOKEN_SECRET);
       res.send({ result, token });
     })
 
@@ -72,7 +74,7 @@ async function run() {
     });
 
     // making an admin 
-    app.put('/user/admin/:email', verifyJWT,verifyAdmin, async (req, res) => {
+    app.put('/user/admin/:email', verifyJWT, verifyAdmin, async (req, res) => {
       const email = req.params.email;
       const filter = { email: email };
       const updateDoc = {
@@ -99,22 +101,22 @@ async function run() {
     })
 
     // creating/ adding a new doctor 
-    app.post('/doctor',verifyJWT,verifyAdmin, async (req, res) => {
+    app.post('/doctor', verifyJWT, verifyAdmin, async (req, res) => {
       const doctor = req.body;
       const result = await doctorsCollection.insertOne(doctor);
       res.send(result);
     })
     // loading all doctors
-    app.get('/doctor',async(req, res)=>{
-      const doctors =await doctorsCollection.find().toArray();
+    app.get('/doctor', async (req, res) => {
+      const doctors = await doctorsCollection.find().toArray();
       res.send(doctors);
     })
 
     // deleting a doctor 
 
-    app.delete('/doctor/:email', async (req, res)=>{
+    app.delete('/doctor/:email', async (req, res) => {
       const email = req.params.email;
-      const query = {email: email};
+      const query = { email: email };
       const result = await doctorsCollection.deleteOne(query);
       res.send(result);
     })
@@ -141,6 +143,22 @@ async function run() {
       return res.send({ success: true, booking: booking, result });
     })
 
+    // updating appointment after payments 
+    app.patch('/booking/:id', verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const payment = req.body;
+      const filter = { _id: ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          paid: true,
+          transactionId: payment.transactionId
+        }
+      }
+      const result = await paymentsCollection.insertOne(payment);
+      const updatedBooking = await appointmentsCollection.updateOne(filter, updatedDoc);
+      res.send(updatedBooking);
+    })
+
     // loading appointments of a single logged in user
     app.get('/appointments', verifyJWT, async (req, res) => {
       const patient = req.query.patient;
@@ -152,6 +170,13 @@ async function run() {
       } else {
         return res.status(403).send({ message: 'Forbidden Access' });
       }
+    })
+    // creating payment route for single service appointment
+    app.get('/appointment/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: ObjectId(id) };
+      const result = await appointmentsCollection.findOne(query);
+      res.send(result);
     })
 
     // available slots for specific date
@@ -175,6 +200,20 @@ async function run() {
       })
       res.send(services);
     })
+
+    //creating post api for payment intent
+    app.post('/create-payment-intent', verifyJWT, async (req, res) => {
+      const service = req.body;
+      const price = service.price;
+      const amount = price * 100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        payment_method_types: ['card']
+      });
+      res.send({ clientSecret: paymentIntent.client_secret })
+    });
+
 
   } finally {
     // await client.close();
